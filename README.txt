@@ -2,8 +2,8 @@
 outline.vim
 
 Author:      Takeshi Takatsudo <takazudo@gmail.com>
-Version:     0.3
-LastUpdate:  2009-11-28
+Version:     0.31
+LastUpdate:  2009-11-29
 Llicense:    Licensed under the same terms as Vim itself.
 Description: outline.vim is a vim plugin. This plugin creates
              an outline window for commented documents.
@@ -73,13 +73,17 @@ node comtrents
 =====================================================================
 * ChangeLog
 
+0.31 (2009-11-29)
+	- Refactoring update.
+	- Bug Fix: Some erros caused by GUI tabs avoided.
+
 0.3 (2009-11-28)
 	- Bug fix: Got trouble in refreshing when parentBuf and outlineBuf
 	  were in different GUI tab.
 	- Whitespace chars in outlineBuf were changed to tabs from spaces.
 
 0.2 (2009-11-25)
-	- Bug fix: refreshing outlineBuf didn't work correctly
+	- Bug fix: Refreshing outlineBuf didn't work correctly
 	  when node num got decreased.
 	- Cursor focus to outlineBuf after refresh avoided.
 

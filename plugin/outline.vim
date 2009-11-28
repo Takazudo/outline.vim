@@ -1,26 +1,25 @@
 "============================================================================
 " outline.vim
 " Author:      Takeshi Takatsudo <takazudo@gmail.com>
-" Version:     0.3
-" LastUpdate:  2009-11-28
+" Version:     0.31
+" LastUpdate:  2009-11-29
 " License:    Licensed under the same terms as Vim itself.
 " 
 " Usage: Exe :Oo (:OutlineOpen) in the commented document.
 "        outline.vim will creates outlineBuf window.
 "        Try :Oo in the sample.css or sample.js.
 " 
-" 			/**
-" 			 * treeNode1
-" 			 */
-" 			something here something here
-" 			something here something here
-" 
-" 				/**
-" 				 * treeNode1-1
-" 				 */
-" 				something here something here
-" 				something here something here
-" 
+"        /**
+"         * treeNode1
+"         */
+"        something here something here
+"        something here something here
+"        
+"        	/**
+"        	 * treeNode1-1
+"        	 */
+"        	something here something here
+"        	something here something here
 " 
 " 	# Commands and Keybinds in the outlineBuf
 " 
@@ -42,9 +41,11 @@
 " 
 "============================================================================
 
-" avoid load this script.
+" set g:loaded_outline = 1 to avoid load this script.
 if exists('g:loaded_outline')
 	finish
+else
+	let g:loaded_outline = 1
 endif
 
 " commands
@@ -84,26 +85,22 @@ fun! g:Outline_to()
 	call s:ToOutline()
 endfun
 
-"============================================
-" BindOutlineBufKeys
-"	set keybind in outlineBuf.
-"
-fun! s:BindOutlineBufKeys()
-	nnoremap <buffer> i <ESC>
-	nnoremap <buffer> r :OutlineRefresh<CR>
-	nnoremap <buffer> q :OutlineClose<CR>
-	nnoremap <buffer> <Enter> :OutlineJump<CR>
-endfun
 
 "============================================
 " Jump
 "	find the related point in the parentBuf.
 "
 fun! s:Jump()
-	let items = b:items
+	
+	if !s:FindParentWin()
+		return
+	endif
+
+	let items = b:outlineItems
 	let curLineNum = line('.')
-	let targetWin = bufwinnr(b:parentBuf)
-	execute targetWin . 'wincmd w'
+
+	call s:MoveToParent()
+
 	let parentLineNum = 0
 	for item in items
 		if item.outlineBufLineNum == curLineNum
@@ -111,149 +108,160 @@ fun! s:Jump()
 		endif
 	endfor
 	execute 'silent normal' . parentLineNum . 'gg'
+
 endfun
 
 "============================================
-" Open
-"	executed in parentBuf.
-"	create the outline buf.
+" s:Open
+"	create outlineBuf.
 "
 fun! s:Open()
-	let curBuf = bufnr('%')
-	autocmd BufWrite <buffer> call g:Outline_Refresh()
-	if !exists('b:outlineBufName')
-		"define outlineBufname
-		let b:outlineBufName = 'outline_' . curBuf
+	if s:IsInOutlineBuf() || s:FindOutlineWin()
+		return
 	endif
-	if !bufexists(b:outlineBufName)
-		"create buf if the outlineBuf doesnot exist
-		let b:outlineBuf = bufnr(b:outlineBufName, 1)
-	endif
-	let w = bufwinnr(b:outlineBuf)
-	if w == -1
-		"window seems not to be opened yet
-		execute 'vert leftabove '.g:outline_winSize.'split'
-		execute 'buffer ' . b:outlineBuf
-		let b:parentBuf = curBuf
+	call s:InitParentBuf()
+	let parentBuf = bufnr('%')
+	let b:outlineBuf = bufnr(b:outlineBufName, 1)
+	execute 'vert leftabove '.g:outline_winSize.'split'
+	execute 'buffer ' . b:outlineBuf
+	let b:parentBuf = parentBuf
+	call s:InitOutlinBuf()
+	call s:Refresh()
+	call s:MoveToParent()
+endfun
+
+	"============================================
+	" s:InitParentBuf
+	" 	define outlineBuf's name
+	"
+	fun! s:InitParentBuf()
+		if exists('b:outlineBufName')
+			return
+		endif
+		let b:outlineBufName = 'outline_' . bufnr('%')
+		autocmd BufWrite <buffer> call g:Outline_Refresh()
+	endfun
+
+	"============================================
+	" s:InitOutlinBuf
+	"
+	fun! s:InitOutlinBuf()
 		let &buftype = 'nofile'
 		setlocal nowrap
-		"match Comment /./
-		"setlocal tabstop=3
+		setlocal tabstop=3
+			"need to define as filetype setting?
 		if g:outline_winEnterRefresh == 1
 			autocmd WinEnter <buffer> call g:Outline_Refresh()
 		endif
-	else
-		"window detected. focus it.
-		execute w . 'wincmd w'
-	endif
-	call s:Refresh()
-	call s:BindOutlineBufKeys()
-endfun
+		nnoremap <buffer> i <ESC>
+		nnoremap <buffer> r :OutlineRefresh<CR>
+		nnoremap <buffer> q :OutlineClose<CR>
+		nnoremap <buffer> <Enter> :OutlineJump<CR>
+	endfun
 
 "============================================
 " Refresh
-"	refresh the outlineBuf's text
+"	start refresh process
 "
 fun! s:Refresh()
+	
+	let wasInParentBuf = 0
+	let wasInOutlineBuf = 0
+	if s:FindOutlineWin()
+		let wasInParentBuf = 1
+	endif
+	if s:FindParentWin()
+		let wasInOutlineBuf = 1
+	endif
 
-	let inParentBuf = 0
-		"var to detect in parentBuf or not first.
-
-	if exists('b:outlineBufName')
-		"this is the parentBuf
-		if bufexists(b:outlineBufName)
-			"outlineBuf detected. focus the outlineBuf
-			let win = bufwinnr(b:outlineBuf)
-			"outlineBuf detected. focus the outlineBuf
-			if win == -1
-				return
-					"outlineBuf detected. but it seems to be in other GUI tab
-			else
-				execute win . 'wincmd w'
-			endif
-			let inParentBuf = 1
-		else
-			"no outlineBuf detected. stop this.
-			return
-		endif
-	elseif exists('b:parentBuf')
-		"this is the outlineBuf. continue this process.
-	else
-		"outlineBuf was not found. just return.
+	if !wasInParentBuf && !wasInOutlineBuf
 		return
 	endif
+	
+	if wasInParentBuf
+		call s:MoveToOutline()
+	endif
 
-	"update dict then refresh buffer.
-	call s:UpdateDict()
-	let i = 1
-	setlocal modifiable
-	silent normal gg"_dG
-		"clear buffer. avoid clipboard hijack
-	for cur in b:items
-	  call setline(i,cur.indexStr)
-	  let i += 1
-	endfor
-	setlocal nomodifiable
+	call s:UpdateOutlineBuf()
 
-	"if was is parentBuf, return there
-	if inParentBuf
-		execute bufwinnr(b:parentBuf) . 'wincmd w'
+	if wasInParentBuf
+		call s:MoveToParent()
 	endif
 
 endfun
 
-"============================================
-" UpdateDict
-"	refresh dict from parentBuf.
-"
-fun! s:UpdateDict()
+	"============================================
+	" UpdateOutlineBuf
+	"	refresh the outlineBuf's text
+	"
+	fun! s:UpdateOutlineBuf()
+		call s:UpdateDict()
+		let i = 1
+		setlocal modifiable
+		silent normal gg"_dG
+			"clear buffer. avoid clipboard hijack
+		for cur in b:outlineItems
+		  call setline(i,cur.indexStr)
+		  let i += 1
+		endfor
+		setlocal nomodifiable
+	endfun
 
-	let b:items = []
-	let lines = getbufline(b:parentBuf,0,'$')
-	let l = len(lines)
-	let i = 0
-	let j = 1
-	
-	while i<l
-		let curStr = get(lines,i)
-		let curMatched = match(curStr,'^\t*\/\*\*')
-			" does this line start with '/**' ?
-		if curMatched != -1
-			let nextNum = i+1
-			let nextStr = get(lines,nextNum)
-			let nextMatched = match(nextStr,'^\t* \* .\+$')
-				" does next line start with ' * sometext' ?
-			if nextMatched != -1
-				let item = {}
-				"let nextStr = substitute(nextStr,'\t','-  ','g')
-				let nextStr = substitute(nextStr,' \* ','','g')
-				let item.parentLineNum = i+1
-				let item.indexStr = nextStr
-				let item.outlineBufLineNum = j
-				call add(b:items,item)
-					" each item is like this
-					" {
-					"     parentLineNum: 30,
-					"     indexStr: someTextForIndexTitle,
-					"     outlineBufLineNum: 3
-					" }
-				let j += 1
+	"============================================
+	" UpdateDict
+	"	refresh dict from parentBuf.
+	"
+	fun! s:UpdateDict()
+
+		let b:outlineItems = []
+		let lines = getbufline(b:parentBuf,0,'$')
+		let l = len(lines)
+		let i = 0
+		let j = 1
+		
+		while i<l
+			let curStr = get(lines,i)
+			let curMatched = match(curStr,'^\t*\/\*\*')
+				" does this line start with '/**' ?
+			if curMatched != -1
+				let nextNum = i+1
+				let nextStr = get(lines,nextNum)
+				let nextMatched = match(nextStr,'^\t* \* .\+$')
+					" does next line start with ' * sometext' ?
+				if nextMatched != -1
+					let item = {}
+					let nextStr = substitute(nextStr,' \* ','','g')
+					let item.parentLineNum = i+1
+					let item.indexStr = nextStr
+					let item.outlineBufLineNum = j
+					call add(b:outlineItems,item)
+						" each item is like this
+						" {
+						"     parentLineNum: 30,
+						"     indexStr: someTextForIndexTitle,
+						"     outlineBufLineNum: 3
+						" }
+					let j += 1
+				endif
 			endif
-		endif
-		let i += 1
-	endwhile
+			let i += 1
+		endwhile
 
-endfun
+	endfun
 
 "============================================
 " Close
 "	close the outline.
 "
 fun! s:Close()
-	if exists('b:parentBuf')
+	if s:IsInOutlineBuf()
 		bwipeout
-	elseif exists('b:outlineBufName') && bufexists(b:outlineBuf)
-		exe "bwipeout " . b:outlineBuf
+	else
+		let buf = s:FindOutlineBuf()
+		if !buf
+			return
+		endif
+		exe "bwipeout " . buf
 	endif
 endfun
 
@@ -262,27 +270,21 @@ endfun
 "	jump to the associated line in the outlineBuf.
 "
 fun! s:ToOutline()
-	if exists('b:parentBuf')
-		"do nothing if outlineBuf
-		return
-	endif
-	if !exists('b:outlineBuf')
-		"do nothing if no outlineBuf
+	if !s:IsInParentBuf()
 		return
 	endif
 	let curLineNum = line('.')
-	let w = bufwinnr(b:outlineBuf)
-	if w == -1
-		"return if no outlineBuf
+	let win = s:FindOutlineWin()
+	if !win
 		return
 	endif
-	execute w . 'wincmd w'
+	execute win . 'wincmd w'
 	let i = 0
 	let outlineBufLineNum = line('$')
 	let found = 0
 	let prevItem = {}
 	"find the line in the outlineBuf
-	for item in b:items
+	for item in b:outlineItems
 		if item.parentLineNum > curLineNum && found == 0
 			if found == 0
 				let outlineBufLineNum = prevItem.outlineBufLineNum
@@ -295,3 +297,158 @@ fun! s:ToOutline()
 	execute 'silent normal' . outlineBufLineNum . 'gg'
 endfun
 
+"============================================
+" parentBuf funcs
+"
+	"============================================
+	" s:IsInParentBuf
+	"
+	fun! s:IsInParentBuf()
+		if exists('b:outlineBuf')
+			return 1
+		endif
+		return 0
+	endfun
+
+	"============================================
+	" s:FindOutlineBuf
+	" 	return outlineBuf or 0
+	"
+	fun! s:FindOutlineBuf()
+		if !s:IsInParentBuf()
+			return 0
+		endif
+		if !bufexists(b:outlineBuf)
+			return 0
+		endif
+		return b:outlineBuf
+	endfun
+
+	"============================================
+	" s:FindOutlineWin
+	" 	returns associated outlineBuf or 0
+	"
+	fun! s:FindOutlineWin()
+		let buf = s:FindOutlineBuf()
+		if !buf
+			return 0
+		endif
+		let win = bufwinnr(buf)
+		if win == -1
+			return 0
+		endif
+		return win
+	endfun
+
+	"============================================
+	" s:MoveToOutline
+	" 	move to outlineBuf
+	"
+	fun! s:MoveToOutline()
+		let win = s:FindOutlineWin()
+		if !win
+			return
+		endif
+		execute win . 'wincmd w'
+	endfun
+
+"============================================
+" outlineBuf funcs
+"
+	"============================================
+	" s:IsInOutlineBuf
+	"
+	fun! s:IsInOutlineBuf()
+		if !exists('b:parentBuf')
+			return 0
+		endif
+		return 1
+	endfun
+
+	"============================================
+	" s:FindParentBuf
+	" 	return parentBuf or 0
+	"
+	fun! s:FindParentBuf()
+		if !s:IsInOutlineBuf()
+			return 0
+		endif
+		if !bufexists(b:parentBuf)
+			return 0
+		endif
+		return b:parentBuf
+	endfun
+
+	"============================================
+	" s:FindParentWin
+	" 	returns associated outlineBuf or 0
+	"
+	fun! s:FindParentWin()
+		let buf = s:FindParentBuf()
+		if !buf
+			return 0
+		endif
+		let win = bufwinnr(buf)
+		if win == -1
+			return 0
+		endif
+		return win
+	endfun
+
+	"============================================
+	" s:MoveToParent
+	" 	morve to parentBuf
+	"
+	fun! s:MoveToParent()
+		let win = s:FindParentWin()
+		if !win
+			return
+		endif
+		execute win . 'wincmd w'
+	endfun
+
+"============================================
+" s:BufPairInDifferentGuiTab
+" 	if parent and outline were in different GUI tab,
+" 	bufexists returuns true but bufwinnnr return false.
+"
+fun! s:BufPairInDifferentGuiTab()
+	if s:IsInOutlineBuf()
+		if s:FindParentBuf() && !s:FindParentWin()
+			return 1
+		else
+			return 0
+		endif
+	endif
+	if s:IsInParentBuf()
+		if s:FindOutlineBuf() && !s:FindOutlineWin()
+			return 1
+		else
+			return 0
+		endif
+	endif
+	return 0
+endfun
+
+"============================================
+" debug
+" 	for dev.
+"
+"command! MyTest1 call g:OutlineTest1()
+"
+"fun! g:OutlineTest1()
+"
+"	echo '######## parent buf fun test ########'
+"	echo 'IsInParentBuf():' . s:IsInParentBuf()
+"	echo 'FindOutlineBuf():' . s:FindOutlineBuf()
+"	echo 'FindOutlineWin():' . s:FindOutlineWin()
+"
+"	echo '######## outline buf fun test ########'
+"	echo 'IsInOutlineBuf():' . s:IsInOutlineBuf()
+"	echo 'FindParentBuf():' . s:FindParentBuf()
+"	echo 'FindParentWin():' . s:FindParentWin()
+"
+"	echo '######## outline buf fun test ########'
+"	echo 'BufPairInDifferentGuiTab():' . s:BufPairInDifferentGuiTab()
+"
+"endfun
