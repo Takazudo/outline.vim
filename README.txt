@@ -5,7 +5,8 @@ Author:      Takeshi Takatsudo <takazudo@gmail.com>
 Llicense:    Licensed under the same terms as Vim itself.
 Description: outline.vim is a vim plugin.
              This plugins creates an outline window for commented documents.
-				 Here's a example.
+=====================================================================
+ Here's an example.
 =====================================================================
 
 /**
